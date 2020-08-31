@@ -1,0 +1,4 @@
+token: "1111~yourtoken"
+host: "https://canvas.instructure.com/"
+workercount: 4
+courseid: 1234567
