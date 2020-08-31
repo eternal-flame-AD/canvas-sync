@@ -15,7 +15,7 @@ import (
 
 	"github.com/cavaliercoder/grab"
 
-	"github.com/eternal-flame-AD/canvas-file-sync/api"
+	"github.com/eternal-flame-AD/canvas-sync/api"
 )
 
 func sanitizeFn(s string) string {
@@ -82,6 +82,7 @@ func DownloadFiles(list []File) {
 		if err != nil {
 			log.Printf("Error building download request: %v", err)
 		}
+		req.Tag = f
 		batch = append(batch, req)
 	}
 	respChan := client.DoBatch(config.WorkerCount, batch...)
@@ -100,6 +101,7 @@ func DownloadFiles(list []File) {
 			curResp := resp
 			go func() {
 				curResp.Wait()
+				updateLocalFileDB(db, resp.Filename, resp.Request.Tag.(File))
 				delete(currentTasks, resp.Filename)
 			}()
 		case <-timer.C:
