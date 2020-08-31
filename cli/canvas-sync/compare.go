@@ -20,7 +20,11 @@ func compareLocalFile(updateDB *badger.DB, path string, file File) bool {
 	if err != nil {
 		return false
 	}
-	return item.String() == file.ModifiedAt
+	val, err := item.ValueCopy(nil)
+	if err != nil {
+		return false
+	}
+	return string(val) == file.ModifiedAt
 }
 
 func updateLocalFileDB(updateDB *badger.DB, path string, file File) {
