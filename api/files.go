@@ -67,6 +67,17 @@ func (c *CanvasAPIClient) BuildURL(uri string) string {
 	}
 }
 
+func (c *CanvasAPIClient) GetFileByID(fid int64) (RESTFileResponse, error) {
+	url := c.BuildURL(fmt.Sprintf("/api/v1/files/%d", fid))
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return RESTFileResponse{}, err
+	}
+	resp := RESTFileResponse{}
+	_, err = c.makeJSONRequest(req, &resp)
+	return resp, err
+}
+
 func (c *CanvasAPIClient) ListAllFilesByCourse(cid int64) (<-chan []RESTFileResponse, *PaginatedResponseController, error) {
 	url := c.BuildURL(fmt.Sprintf("/api/v1/courses/%d/files", cid))
 	req, err := http.NewRequest("GET", url, nil)

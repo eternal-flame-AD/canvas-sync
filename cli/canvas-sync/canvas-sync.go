@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,7 +33,7 @@ func sanitizeFn(s string) string {
 	} {
 		s = strings.ReplaceAll(s, oldChar, newChar)
 	}
-	return s
+	return strings.TrimSpace(s)
 }
 
 type Config struct {
@@ -40,6 +41,7 @@ type Config struct {
 	WorkerCount int
 	Token       string
 	Host        string
+	UseModules  bool
 }
 
 var (
@@ -57,7 +59,7 @@ type File struct {
 	URL        string
 }
 
-func ReverseStringSlice(s []string) {
+func Rev[T comparable](s []T) {
 	for i := 0; i < len(s)/2; i++ {
 		s[i], s[len(s)-1-i] = s[len(s)-1-i], s[i]
 	}
@@ -81,6 +83,7 @@ func DownloadFiles(list []File) {
 		req, err := grab.NewRequest(fullPath, f.URL)
 		if err != nil {
 			log.Printf("Error building download request: %v", err)
+			continue
 		}
 		req.Tag = f
 		batch = append(batch, req)
@@ -101,6 +104,9 @@ func DownloadFiles(list []File) {
 			curResp := resp
 			go func() {
 				curResp.Wait()
+				if err := curResp.Err(); err != nil {
+					log.Printf("Error downloading %s: %v", curResp.Filename, err)
+				}
 				updateLocalFileDB(db, resp.Filename, resp.Request.Tag.(File))
 				delete(currentTasks, resp.Filename)
 			}()
@@ -134,20 +140,27 @@ func init() {
 }
 
 func main() {
+	defer db.Close()
+
 	client := &api.CanvasAPIClient{
 		HttpClient:  new(http.Client),
 		Host:        config.Host,
 		BearerToken: config.Token,
 	}
 
-	files, err := getFileListFromFilesAPI(client)
+	var files []File
+	var err error
+	if config.UseModules {
+		files, err = getFileListFromModulesAPI(client)
+	} else {
+		files, err = getFileListFromFilesAPI(client)
+	}
 	if err != nil {
 		log.Fatalf("Error while getting file list from files api: %v", err)
 	}
+
 	log.Printf("%d files loaded.", len(files))
 	DownloadFiles(files)
-
-	db.Close()
 }
 
 func getFileListFromFilesAPI(client *api.CanvasAPIClient) ([]File, error) {
@@ -167,7 +180,7 @@ func getFileListFromFilesAPI(client *api.CanvasAPIClient) ([]File, error) {
 			path = append(path, folders[curFolder].Name)
 			curFolder = folders[curFolder].ParentFolderID
 		}
-		ReverseStringSlice(path)
+		Rev(path)
 		res = append(res, File{
 			FolderPath: path,
 			FileName:   file.DisplayName,
@@ -177,6 +190,56 @@ func getFileListFromFilesAPI(client *api.CanvasAPIClient) ([]File, error) {
 			ModifiedAt: file.ModifiedAt,
 			URL:        file.URL,
 		})
+	}
+	return res, nil
+}
+
+func getFileListFromModulesAPI(client *api.CanvasAPIClient) ([]File, error) {
+	modulesItems, err := client.ListModuleItemsAll(strconv.FormatInt(config.CourseID, 10))
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("%d module items found.", len(modulesItems))
+	var res []File
+	curModule := ""
+	curSubHeader := ""
+	for _, item := range modulesItems {
+
+		if len(item.Content.Modules) > 0 {
+			newModule := item.Content.Modules[0].Name
+			if newModule != curModule {
+				curModule = newModule
+				curSubHeader = ""
+			}
+		}
+
+		switch item.Content.Typename {
+		case "File":
+			idInt, err := strconv.ParseInt(item.Content.IDLegacy, 10, 64)
+			if err != nil {
+				log.Printf("Error while parsing file id %s: %v", item.Content.IDLegacy, err)
+				continue
+			}
+			fileInfo, err := client.GetFileByID(idInt)
+			if err != nil {
+				log.Printf("Error while getting file info for file %s: %v", item.Content.IDLegacy, err)
+				continue
+			}
+			f := File{
+				FolderPath: []string{"Modules", curModule},
+				FileName:   fileInfo.DisplayName,
+				Size:       fileInfo.Size,
+				CreatedAt:  fileInfo.CreatedAt,
+				UpdatedAt:  fileInfo.UpdatedAt,
+				URL:        fileInfo.URL,
+			}
+			if curSubHeader != "" {
+				f.FolderPath = append(f.FolderPath, curSubHeader)
+			}
+			res = append(res, f)
+		case "SubHeader":
+			curSubHeader = item.Content.Title
+		}
 	}
 	return res, nil
 }
