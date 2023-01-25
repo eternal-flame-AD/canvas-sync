@@ -13,7 +13,7 @@ import (
 
 	"github.com/jinzhu/configor"
 
-	"github.com/cavaliercoder/grab"
+	"github.com/cavaliergopher/grab/v3"
 
 	"github.com/eternal-flame-AD/canvas-sync/api"
 )
